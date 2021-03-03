@@ -6,3 +6,4 @@
 .idea/treeRL4detection.iml
 .idea/vcs.xml
 __pycache__/utils.cpython-36.pyc
+.DS_Store

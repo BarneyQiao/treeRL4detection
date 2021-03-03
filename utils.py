@@ -149,7 +149,11 @@ def get_img_feature(model,img_path,roi=None):
         roi_y = int(roi[1])
         roi_w = int(roi[2])
         roi_h = int(roi[3])
-        img = img[roi_y:roi_y+roi_h,roi_x:roi_w]
+        roi_y1 = roi_y+roi_h
+        roi_x1 = roi_x+roi_w
+
+
+        img = img[roi_y:roi_y1,roi_x:roi_x1]
 
     img_tensor = transform(img)
     img_tensor = torch.unsqueeze(img_tensor,0)
@@ -184,12 +188,14 @@ def drop_outliers(img_box):
     x2 = x1 + img_box[2]
     y2 = y1+ img_box[3]
 
-    img_box[0] = np.clip(x1,0,IMG_WIDTH-1)
+    img_box[0] = np.clip(x1,2,IMG_WIDTH-2)
     x2 = np.clip(x2,x1,IMG_WIDTH-1)
-    img_box[1] = np.clip(y1,0,IMG_HEIGHT-1)
-    y2 = np.clip(y2,y1,IMG_HEIGHT-1)
+    img_box[1] = np.clip(y1,2,IMG_HEIGHT-2)
+    y2 = np.clip(y2,y1,IMG_HEIGHT-2)
     img_box[2] = x2 - img_box[0]
+    img_box[2] = np.clip(img_box[2],2,IMG_WIDTH-2)
     img_box[3] = y2 - img_box[1]
+    img_box[3] = np.clip(img_box[3],2,IMG_HEIGHT-2)
 
     return img_box
 
@@ -202,7 +208,9 @@ class VGG(nn.Module):
         self.features = features
         self.avgpool = nn.AdaptiveAvgPool2d((7, 7))
         self.classifier = nn.Sequential(
-            nn.Linear(512 * 7 * 7, 4096))
+            nn.Linear(512 * 7 * 7, 4096),
+            nn.ReLU(True)
+        )
 
     def forward(self, x):
         x = self.features(x)

@@ -42,8 +42,8 @@ class MediaEnv(object):
         r = 0.
         self.img_box = self.state_info['img_box']
        #去除异常坐标
-        self.img_box = ut.drop_outliers(self.img_box)
-        self.state_info['img_box'] = ut.cmt_imgcor_by_action(list_imgcor=self.img_box,action=action)
+        self.img_box = ut.cmt_imgcor_by_action(list_imgcor=self.img_box,action=action)
+        self.state_info['img_box'] = ut.drop_outliers(self.img_box)
         # print(action)
 
         # done and reward
@@ -51,7 +51,7 @@ class MediaEnv(object):
         # state : 1整图的  2ROI的  3动作
         hol_img_feature = ut.get_img_feature(self.feature_ext,
                                      img_path=self.state_info['img_path'])
-
+        print(self.state_info['img_box'])
         roi_feature = ut.get_img_feature(self.feature_ext,
                                          img_path=self.state_info['img_path'],
                                          roi=self.state_info['img_box'])
@@ -82,7 +82,7 @@ class MediaEnv(object):
         self.viewer.render()
 
     def sample_action(self):
-        action =  np.random.randint(13)    # 13 action
+        action =  np.random.randint(5,13)    # 13 action
         return action
 
 
@@ -148,4 +148,4 @@ if __name__ == '__main__':
     while True:
         env.render()
         env.step(env.sample_action())
-        time.sleep(1)
+        # time.sleep(1)
