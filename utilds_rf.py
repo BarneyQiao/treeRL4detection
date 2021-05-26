@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-@Time          : 2021/3/3 9:19
+@Time          : 2021/3/10 14:01
 @Author        : BarneyQ
-@File          : utils.py
+@File          : utilds-rf.py
 @Software      : PyCharm
 @Description   :
 @Modification  :
@@ -11,6 +11,7 @@
     @Detail    :
 
 """
+
 import torch
 import torch.nn as nn
 import torchvision.models as trained_models
@@ -29,30 +30,35 @@ IMG_WIDTH = 720
 IMG_HEIGHT = 540
 IMG_PATH = './assets/caifenfang-0.png'
 
-SCALE_FACTOR = 0.75
-TRANS_FACTOR = 0.2
+SCALE_FACTOR = 0.80 # 执行一次动作，变为0.75倍
+TRANS_FACTOR = 0.80
 IOU_END = 0.6  #最低IOU
 
+INIT_BOX_WIDTH = 500  #初始框的宽
+INIT_BOX_HEIGHT = 100 # 初始框的高
 
 # train and  test
-MAX_EPOCHES = 25 # 训练epoches
+MAX_EPOCHES = 30 # 训练epoches
 MAX_EPISODES = 1 # 训练集图片个数
-MAX_EP_STEPS = 500  #每个图片的交互步数
+MAX_EP_STEPS = 10  #每个图片的交互步数
 EPS = 1.0
-HIS_EPISODES = 10   # 历史动作记住
+HIS_EPISODES = 5   # 历史动作记住
 
 
 #Agent
 BATCH_SIZE = 100
-LEARNING_RATE = 0.001
+LEARNING_RATE = 1e-6
 GAMMA = 0.9     # reward discount
 
-
+norm_mean = [0.485, 0.456, 0.406]
+norm_std = [0.229, 0.224, 0.225]
 # image
 transform = transforms.Compose([
         transforms.ToPILImage(),
         transforms.Resize((224, 224)),
-        transforms.ToTensor(), ])
+        transforms.ToTensor(),
+        transforms.Normalize(norm_mean, norm_std),
+])
 
 #给一个图片坐标，转换成glet坐标
 def cvt_img2pyglet(list_img_cor):
@@ -73,12 +79,12 @@ def cvt_img2pyglet(list_img_cor):
     return [x1,y1,x2,y2,x3,y3,x4,y4]
 
 # 执行动作之后的坐标(img) [x,y,w,h]
-def cmt_imgcor_by_action(list_imgcor,action):
+def cmt_imgcor_by_action_old(list_imgcor,action):
     x = list_imgcor[0]
     y = list_imgcor[1]
     w = list_imgcor[2]
     h = list_imgcor[3]
-    # scale
+    # scale 从小往大，不需要scale变小
     if action == 0:
         #左上
         w = w * SCALE_FACTOR
@@ -109,37 +115,160 @@ def cmt_imgcor_by_action(list_imgcor,action):
         y = y_t-h/2
 
     # trans
-    elif action ==5:
-        x = x+w * TRANS_FACTOR
-    elif action == 6:
-        x = x-w*TRANS_FACTOR
-    elif action == 7:
-        y = y+h*TRANS_FACTOR
-    elif action == 8:
-        y = y-h*TRANS_FACTOR
-    elif action == 9:
-        x_t = x + w / 2
-        y_t = y + h / 2
-        h = h * (1-2*TRANS_FACTOR)
-        y = y_t- h/2
-    elif action == 10:
-        x_t = x + w / 2
-        y_t = y + h / 2
-        w = w * (1-2*TRANS_FACTOR)
-        x = x_t -  w/2
-    elif action == 11:
-        x_t = x + w / 2
-        y_t = y + h / 2
-        h = h * (1 + 2 * TRANS_FACTOR)
-        y = y_t - h/2
-    elif action == 12:
-        x_t = x + w / 2
-        y_t = y + h / 2
-        w = w * (1 + 2 * TRANS_FACTOR)
-        x = x_t - w/2
+    # if action ==0:
+    #     # →
+    #     x = x+w * TRANS_FACTOR
+    # elif action == 1:
+    #     # ←
+    #     x = x-w*TRANS_FACTOR
+    # elif action == 2:
+    #     # ↓
+    #     y = y+h*TRANS_FACTOR
+    # elif action == 3:
+    #     # ↑
+    #     y = y-h*TRANS_FACTOR
+    # elif action == 4:
+    #     # 上下压扁
+    #     x_t = x + w / 2
+    #     y_t = y + h / 2
+    #     h = h * (1-TRANS_FACTOR *2)
+    #     y = y_t- h/2
+    # elif action == 5:
+    #     # 左右压瘦
+    #     x_t = x + w / 2
+    #     y_t = y + h / 2
+    #     w = w * (1-TRANS_FACTOR *2)
+    #     x = x_t -  w/2
+    # elif action == 6:
+    #     # 上下拉长
+    #     x_t = x + w / 2
+    #     y_t = y + h / 2
+    #     h = h * (1 +  TRANS_FACTOR *2)
+    #     y = y_t - h/2
+    # elif action == 7:
+    #     # 左右拉胖
+    #     x_t = x + w / 2
+    #     y_t = y + h / 2
+    #     w = w * (1 +  TRANS_FACTOR * 2)
+    #     x = x_t - w/2
+    # # 加上两个scale的动作 中心变小 和中心变大
+    # elif action == 8:
+    # # 中间 缩小 scale
+    # #     x_t = x + w/2
+    # #     y_t = y + h/2
+    #     w = w - w * SCALE_FACTOR
+    #     h = h - h * SCALE_FACTOR
+    #     # x = x_t-w/2
+    #     # y = y_t-h/2
+    # elif action == 9:
+    #     # 中间扩大 scale
+    #     # x_t = x + w / 2
+    #     # y_t = y + h / 2
+    #     w = w + w * SCALE_FACTOR
+    #     h = h + h * SCALE_FACTOR
+    #     # x = x_t + w / 2
+    #     # y = y_t + h / 2
     else:
+        # stop动作
         pass
     return [x,y,w,h]
+
+# 执行动作之后的坐标(img) [x,y,w,h]
+def cmt_imgcor_by_action(list_imgcor,action):
+    x = list_imgcor[0]
+    y = list_imgcor[1]
+    w = list_imgcor[2]
+    h = list_imgcor[3]
+    # scale 从小往大，不需要scale变小
+    if action == 0:
+        #左上
+        w = w * SCALE_FACTOR
+        h = h * SCALE_FACTOR
+    elif action ==1:
+        #右上
+        x = x+ w*(1-SCALE_FACTOR)
+        w = w * SCALE_FACTOR
+        h = h * SCALE_FACTOR
+    elif action ==2:
+        #左下
+        y = y + h * (1 - SCALE_FACTOR)
+        w = w * SCALE_FACTOR
+        h = h * SCALE_FACTOR
+    elif action ==3:
+        #右下
+        x = x + w * (1 - SCALE_FACTOR)
+        y = y + h * (1 - SCALE_FACTOR)
+        w = w * SCALE_FACTOR
+        h = h * SCALE_FACTOR
+    elif action ==4:
+        # 中间
+        x_t = x + w/2
+        y_t = y + h/2
+        w = w * SCALE_FACTOR
+        h = h * SCALE_FACTOR
+        x = x_t-w/2
+        y = y_t-h/2
+
+    # trans
+    # if action ==0:
+    #     # →
+    #     x = x+w * TRANS_FACTOR
+    # elif action == 1:
+    #     # ←
+    #     x = x-w*TRANS_FACTOR
+    # elif action == 2:
+    #     # ↓
+    #     y = y+h*TRANS_FACTOR
+    # elif action == 3:
+    #     # ↑
+    #     y = y-h*TRANS_FACTOR
+    # elif action == 4:
+    #     # 上下压扁
+    #     x_t = x + w / 2
+    #     y_t = y + h / 2
+    #     h = h * (1-TRANS_FACTOR *2)
+    #     y = y_t- h/2
+    # elif action == 5:
+    #     # 左右压瘦
+    #     x_t = x + w / 2
+    #     y_t = y + h / 2
+    #     w = w * (1-TRANS_FACTOR *2)
+    #     x = x_t -  w/2
+    # elif action == 6:
+    #     # 上下拉长
+    #     x_t = x + w / 2
+    #     y_t = y + h / 2
+    #     h = h * (1 +  TRANS_FACTOR *2)
+    #     y = y_t - h/2
+    # elif action == 7:
+    #     # 左右拉胖
+    #     x_t = x + w / 2
+    #     y_t = y + h / 2
+    #     w = w * (1 +  TRANS_FACTOR * 2)
+    #     x = x_t - w/2
+    # # 加上两个scale的动作 中心变小 和中心变大
+    # elif action == 8:
+    # # 中间 缩小 scale
+    # #     x_t = x + w/2
+    # #     y_t = y + h/2
+    #     w = w - w * SCALE_FACTOR
+    #     h = h - h * SCALE_FACTOR
+    #     # x = x_t-w/2
+    #     # y = y_t-h/2
+    # elif action == 9:
+    #     # 中间扩大 scale
+    #     # x_t = x + w / 2
+    #     # y_t = y + h / 2
+    #     w = w + w * SCALE_FACTOR
+    #     h = h + h * SCALE_FACTOR
+    #     # x = x_t + w / 2
+    #     # y = y_t + h / 2
+    else:
+        # stop动作
+        pass
+    return [x,y,w,h]
+
+
 
 # 返回一个pre-trained模型vgg
 def build_pretrain_model():
@@ -149,13 +278,14 @@ def build_pretrain_model():
     # vgg = VGG(features)
     # vgg.load_state_dict(torch.load('./vgg16_bn-6c64b313.pth'),strict= False)
     # vgg.eval()
-
+    # return vgg
     model = trained_models.resnet18(pretrained=False)
     rs = Resnet18(model)
     rs.load_state_dict(torch.load('./rs-18.pth'), strict=False)
+    print('load res18 parameters')
     rs.eval()
 
-    # return vgg
+
     return rs
 
 # 给一个图片，使用预训练的VGG-16进行特征提取，最后输出一个4096维度的vector
@@ -318,24 +448,12 @@ class Resnet18(nn.Module):
         x = self.features.layer3(x)
         x = self.features.layer4(x)
 
-        x = self.features.avgpool(x)
+        # x = self.features.avgpool(x)
         x = torch.flatten(x, 1)
         return x
 
 
-class Node(object):
-    def __init__(self,state,scale_max_a,tran_max_a,iou):
-        self.state = state
-        self.scale_max_a = scale_max_a
-        self.tran_max_a = tran_max_a
-        self.iou = iou
 
-        self.lchild = None
-        self.rchild = None
-
-class Tree(object):
-    def __init__(self):
-        pass
 
 
 
@@ -358,3 +476,10 @@ if __name__ == '__main__':
         img = cv2.resize(img, (IMG_WIDTH, IMG_HEIGHT))
         cv2.imwrite(img=img,filename=file)
         print('done:{0}'.format(file))
+
+    import torchvision.models as md
+    from  torchvision.ops import RoIPool
+    farnn = md.detection.FasterRCNN()
+    roipool = RoIPool((7,7),1/16)
+
+    # pool = roipool(x, indices_and_rois)

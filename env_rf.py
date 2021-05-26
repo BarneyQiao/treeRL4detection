@@ -1,35 +1,40 @@
 # -*- coding: utf-8 -*-
 """
-@Time          : 2021/3/3 9:18
+@Time          : 2021/3/10 10:54
 @Author        : BarneyQ
-@File          : env.py
+@File          : env-rf.py
 @Software      : PyCharm
-@Description   :
+@Description   : 微调RL环境
+                                1. 环境读取一张图和Ground Truth坐标
+                                2. 初始化环境在ground Truth 正中间（默认）
+                                3. 初始框大小10×10
 @Modification  :
     @Author    :
     @Time      :
     @Detail    :
 
 """
+# -*- coding: utf-8 -*-
 import pyglet
 import numpy as np
-import utils  as ut
+import utilds_rf  as ut
 import time
 import torch
 from  collections import deque
+import random
 GPU = 0
 device = torch.device("cuda:{}".format(GPU) if torch.cuda.is_available() else "cpu")
 
 
 
-
 class MediaEnv(object):
     viewer = None
-    action_dim = 14 # 14 个动作
-    # state_dim = 4096+4096+14*ut.MAX_EP_STEPS # 4096+4096+700 vgg
-    state_dim = 512+512+14*ut.HIS_EPISODES # 512+512+700 resnet -18
+    action_dim = 6 # 6 个动作
+    # state_dim = 4096+action_dim*ut.MAX_EP_STEPS # 4096+4096+700 vgg
+    # state_dim = 4096+action_dim*ut.HIS_EPISODES # 4096+4096+700 vgg
+    state_dim = 25088+action_dim*ut.HIS_EPISODES # 512+512+700 resnet -18 ： 512 + 30
     def __init__(self):
-        self.img_box = [0,0,ut.IMG_WIDTH,ut.IMG_HEIGHT] #初始框 图像坐标(wx,hy)
+        self.img_box = [0,0,ut.IMG_WIDTH,ut.IMG_HEIGHT] #初始框
         self.state_info = {} # 存储环境信息
         self.state_info['img_box'] = self.img_box
         self.state_info['img_path'] = ut.IMG_PATH
@@ -54,57 +59,78 @@ class MediaEnv(object):
        #去除异常坐标
         self.img_box = ut.drop_outliers(self.img_box)
 
-        self.state_info['img_box'] = self.img_box
+        # self.state_info['img_box'] = self.img_box
         self.cur_iou = ut.cal_iou(self.state_info['img_box'],self.ground_box)
         # done and reward
+
         self.last_iou = self.state_info['cur_iou']
         delta_iou = self.cur_iou - self.last_iou
 
         if delta_iou > 0:
             r = 1.0
+        elif delta_iou == 0:
+            r = 0.0
         else:
-            r=-1.0
+            r = -1.0
 
-        if self.cur_iou > ut.IOU_END:
-            done = True
-            r = 5.0
+        if action == 5:
+            # 如果采取动作5，代表我认为停止
+            if self.cur_iou >= ut.IOU_END:
+                done = True
+                r = 10.0
+            else:
+                # 否则，给惩罚
+                r = -10.0
 
 
 
         self.state_info['cur_iou'] = self.cur_iou
         # next state : 1整图的  2ROI的  3动作
-        hol_img_feature,_ = ut.get_img_feature(self.feature_ext,
-                                     img_path=self.state_info['img_path'])
+        # hol_img_feature,self.scale_img = ut.get_img_feature(self.feature_ext,
+        #                              img_path=self.state_info['img_path'])
         # print(self.state_info['img_box'])
-        roi_feature,_ = ut.get_img_feature(self.feature_ext,
+        roi_feature,self.scale_img = ut.get_img_feature(self.feature_ext,
                                          img_path=self.state_info['img_path'],
-                                         roi=self.state_info['img_box'])
+                                         roi=self.img_box)
         his_actions =ut.cmt_act_history(self.his_actions_deq,action_dim=self.action_dim,action=action)
-        s_ = torch.cat((hol_img_feature,roi_feature,his_actions),dim=1)
+        self.state_info['img_box'] = self.img_box
+
+        # s_ = torch.cat((hol_img_feature,roi_feature,his_actions),dim=1)
+        s_ = torch.cat((roi_feature,his_actions),dim=1)
         s_ = s_.cpu().detach().numpy()
 
-        return s_,r,done
+        return s_,r,done,self.cur_iou
 
 
 
     def reset(self,index,files,labels):
-        self.img_box = [0, 0, ut.IMG_WIDTH, ut.IMG_HEIGHT]  # 初始框 图像坐标(wx,hy)
-        self.ground_box = ut.get_ground_box(index,labels,self.scale_img)  # 获取标注框
-        self.cur_iou = ut.cal_iou(self.img_box,self.ground_box) # 获取当前iou
+
+
+        # hol_img_feature,self.scale_img = ut.get_img_feature(self.feature_ext,
+        #                                      img_path=self.state_info['img_path'])
+
+        roi_feature,self.scale_img = ut.get_img_feature(self.feature_ext,
+                                         img_path=self.state_info['img_path'],
+                                         roi=self.state_info['img_box'])
+
+        self.ground_box = ut.get_ground_box(index, labels, self.scale_img)  # 获取标注框
+        # 20210310 :初始框在ground truth的中心点 10 10 的矩形框上进行寻找
+        # self.img_box = [(self.ground_box[0]+self.ground_box[2]/2-ut.INIT_BOX_WIDTH/2 + random.randint(0,11) ),
+        #                             (self.ground_box[1]+self.ground_box[3]/2-ut.INIT_BOX_HEIGHT/2 + random.randint(0,11)),
+        #                             ut.INIT_BOX_WIDTH, ut.INIT_BOX_HEIGHT]  # 初始框 [groud truth的中心点, 10，10]
+        self.img_box = [0, 0, ut.IMG_WIDTH, ut.IMG_HEIGHT]  # 初始框 全图范围
+        self.cur_iou = ut.cal_iou(self.img_box, self.ground_box)  # 获取当前iou
 
         self.state_info['img_box'] = self.img_box
         self.state_info['ground_box'] = self.ground_box
-        self.state_info['cur_iou'] = self.cur_iou  #store iou
+        self.state_info['cur_iou'] = self.cur_iou  # store iou
         self.state_info['img_path'] = files[index]
 
-        hol_img_feature,self.scale_img = ut.get_img_feature(self.feature_ext,
-                                             img_path=self.state_info['img_path'])
+        self.init_iou = self.cur_iou  # 保留最初的iou 不能小于这个值
 
-        roi_feature,_ = ut.get_img_feature(self.feature_ext,
-                                         img_path=self.state_info['img_path'],
-                                         roi=self.state_info['img_box'])
         his_actions = ut.cmt_act_history(self.his_actions_deq, action_dim=self.action_dim, action=None)
-        s_ = torch.cat((hol_img_feature, roi_feature, his_actions), dim=1)
+        # s_ = torch.cat((hol_img_feature, roi_feature, his_actions), dim=1)
+        s_ = torch.cat(( roi_feature, his_actions), dim=1)
         s_ = s_.cpu().detach().numpy()
         return s_
 

@@ -7,3 +7,9 @@
 .idea/vcs.xml
 __pycache__/utils.cpython-36.pyc
 .DS_Store
+__pycache__/env.cpython-36.pyc
+__pycache__/rl.cpython-36.pyc
+vgg16_bn-6c64b313.pth
+.idea/*
+assets/*
+assets-1/
